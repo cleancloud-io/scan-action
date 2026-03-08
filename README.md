@@ -105,6 +105,11 @@ This action installs the latest CleanCloud from PyPI by default. To pin a specif
     version: '1.7.1'
 ```
 
+## As featured in
+
+- [Korben](https://korben.info/cleancloud-nettoyeur-cloud-aws-azure.html) 🇫🇷 — Major French tech publication
+- [Last Week in AWS #457](https://www.lastweekinaws.com/newsletter/15259/) — Corey Quinn's weekly AWS newsletter
+
 ## Links
 
 - [CleanCloud CLI](https://github.com/cleancloud-io/cleancloud)

@@ -1,0 +1,71 @@
+name: Test Action
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: null
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  test-aws:
+    name: Test — AWS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          aws-region: us-east-1
+      - name: Run CleanCloud scan (all regions, report only)
+        uses: ./
+        with:
+          provider: aws
+          all-regions: "true"
+          output: json
+          output-file: aws-results.json
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-scan-results
+          path: aws-results.json
+          retention-days: 7
+  test-azure:
+    name: Test — Azure
+    runs-on: ubuntu-latest
+    environment: scan-action-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Debug secret lengths
+        run: |
+          echo "client-id length: ${#CID}"
+          echo "tenant-id length: ${#TID}"
+          echo "subscription-id length: ${#SID}"
+        env:
+          CID: ${{ secrets.AZURE_CLIENT_ID }}
+          TID: ${{ secrets.AZURE_TENANT_ID }}
+          SID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Run CleanCloud scan (report only)
+        uses: ./
+        with:
+          provider: azure
+          output: json
+          output-file: azure-results.json
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-scan-results
+          path: azure-results.json
+          retention-days: 7

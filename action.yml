@@ -1,0 +1,83 @@
+name: 'CleanCloud Scan'
+description: 'Scan your cloud environment for waste and hygiene issues'
+author: 'Suresh Mandalapu'
+
+branding:
+  icon: 'search'
+  color: 'green'
+
+inputs:
+  provider:
+    description: 'Cloud provider to scan: aws or azure'
+    required: true
+  region:
+    description: 'Specific region or location to scan'
+    required: false
+    default: ''
+  all-regions:
+    description: 'Scan all regions with resources (AWS only)'
+    required: false
+    default: 'false'
+  fail-on-confidence:
+    description: 'Fail if findings at or above this confidence level exist: LOW, MEDIUM, or HIGH'
+    required: false
+    default: ''
+  fail-on-cost:
+    description: 'Fail if estimated monthly waste exceeds this USD amount'
+    required: false
+    default: ''
+  fail-on-findings:
+    description: 'Fail on any finding'
+    required: false
+    default: 'false'
+  output:
+    description: 'Output format: human, json, csv, or markdown'
+    required: false
+    default: 'human'
+  output-file:
+    description: 'Path to write output file (required for json/csv, optional for markdown)'
+    required: false
+    default: ''
+  version:
+    description: 'CleanCloud version to install (e.g. 1.7.0). Defaults to latest.'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install CleanCloud
+      shell: bash
+      env:
+        CLEANCLOUD_VERSION: ${{ inputs.version }}
+      run: |
+        if [ -n "$CLEANCLOUD_VERSION" ]; then
+          pip install "cleancloud==$CLEANCLOUD_VERSION"
+        else
+          pip install cleancloud
+        fi
+
+    - name: Run CleanCloud scan
+      shell: bash
+      env:
+        INPUT_PROVIDER: ${{ inputs.provider }}
+        INPUT_REGION: ${{ inputs.region }}
+        INPUT_ALL_REGIONS: ${{ inputs.all-regions }}
+        INPUT_FAIL_ON_CONFIDENCE: ${{ inputs.fail-on-confidence }}
+        INPUT_FAIL_ON_COST: ${{ inputs.fail-on-cost }}
+        INPUT_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_OUTPUT_FILE: ${{ inputs.output-file }}
+      run: |
+        set -euo pipefail
+        ARGS=(scan --provider "$INPUT_PROVIDER")
+
+        [ "$INPUT_ALL_REGIONS" = "true" ]        && ARGS+=(--all-regions)
+        [ -n "$INPUT_REGION" ]                   && ARGS+=(--region "$INPUT_REGION")
+        [ -n "$INPUT_FAIL_ON_CONFIDENCE" ]        && ARGS+=(--fail-on-confidence "$INPUT_FAIL_ON_CONFIDENCE")
+        [ -n "$INPUT_FAIL_ON_COST" ]              && ARGS+=(--fail-on-cost "$INPUT_FAIL_ON_COST")
+        [ "$INPUT_FAIL_ON_FINDINGS" = "true" ]   && ARGS+=(--fail-on-findings)
+        [ -n "$INPUT_OUTPUT" ]                   && ARGS+=(--output "$INPUT_OUTPUT")
+        [ -n "$INPUT_OUTPUT_FILE" ]              && ARGS+=(--output-file "$INPUT_OUTPUT_FILE")
+
+        cleancloud "${ARGS[@]}"

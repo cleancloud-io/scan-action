@@ -39,22 +39,27 @@ inputs:
     required: false
     default: ''
   version:
-    description: 'CleanCloud version to install (e.g. 1.7.0). Defaults to latest.'
+    description: 'CleanCloud version to install (e.g. 1.7.2). Defaults to latest.'
     required: false
     default: ''
 
 runs:
   using: 'composite'
   steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
     - name: Install CleanCloud
       shell: bash
       env:
         CLEANCLOUD_VERSION: ${{ inputs.version }}
       run: |
         if [ -n "$CLEANCLOUD_VERSION" ]; then
-          pip install "cleancloud==$CLEANCLOUD_VERSION"
+          pip install --upgrade "cleancloud==$CLEANCLOUD_VERSION"
         else
-          pip install cleancloud
+          pip install --upgrade cleancloud
         fi
 
     - name: Run CleanCloud scan
@@ -70,14 +75,34 @@ runs:
         INPUT_OUTPUT_FILE: ${{ inputs.output-file }}
       run: |
         set -euo pipefail
+
+        # Validate: all-regions is AWS only
+        if [ "$INPUT_PROVIDER" = "azure" ] && [ "$INPUT_ALL_REGIONS" = "true" ]; then
+          echo "::error::all-regions=true is only valid for AWS"
+          exit 1
+        fi
+
+        # Validate: output-file required for json/csv
+        if [[ "$INPUT_OUTPUT" =~ ^(json|csv)$ ]] && [ -z "$INPUT_OUTPUT_FILE" ]; then
+          echo "::error::output-file is required when output is json or csv"
+          exit 1
+        fi
+
+        # Validate: fail-on-confidence value
+        case "$INPUT_FAIL_ON_CONFIDENCE" in
+          ""|LOW|MEDIUM|HIGH) ;;
+          *) echo "::error::Invalid fail-on-confidence value: '$INPUT_FAIL_ON_CONFIDENCE'. Must be LOW, MEDIUM, or HIGH"; exit 1 ;;
+        esac
+
         ARGS=(scan --provider "$INPUT_PROVIDER")
 
-        [ "$INPUT_ALL_REGIONS" = "true" ]        && ARGS+=(--all-regions)
-        [ -n "$INPUT_REGION" ]                   && ARGS+=(--region "$INPUT_REGION")
-        [ -n "$INPUT_FAIL_ON_CONFIDENCE" ]        && ARGS+=(--fail-on-confidence "$INPUT_FAIL_ON_CONFIDENCE")
-        [ -n "$INPUT_FAIL_ON_COST" ]              && ARGS+=(--fail-on-cost "$INPUT_FAIL_ON_COST")
-        [ "$INPUT_FAIL_ON_FINDINGS" = "true" ]   && ARGS+=(--fail-on-findings)
-        [ -n "$INPUT_OUTPUT" ]                   && ARGS+=(--output "$INPUT_OUTPUT")
-        [ -n "$INPUT_OUTPUT_FILE" ]              && ARGS+=(--output-file "$INPUT_OUTPUT_FILE")
+        [ "$INPUT_ALL_REGIONS" = "true" ]      && ARGS+=(--all-regions)
+        [ -n "$INPUT_REGION" ]                 && ARGS+=(--region "$INPUT_REGION")
+        [ -n "$INPUT_FAIL_ON_CONFIDENCE" ]     && ARGS+=(--fail-on-confidence "$INPUT_FAIL_ON_CONFIDENCE")
+        [ -n "$INPUT_FAIL_ON_COST" ]           && ARGS+=(--fail-on-cost "$INPUT_FAIL_ON_COST")
+        [ "$INPUT_FAIL_ON_FINDINGS" = "true" ] && ARGS+=(--fail-on-findings)
+        [ -n "$INPUT_OUTPUT" ]                 && ARGS+=(--output "$INPUT_OUTPUT")
+        [ -n "$INPUT_OUTPUT_FILE" ]            && ARGS+=(--output-file "$INPUT_OUTPUT_FILE")
 
+        echo "Running: cleancloud ${ARGS[*]}"
         cleancloud "${ARGS[@]}"

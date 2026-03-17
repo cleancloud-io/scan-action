@@ -17,6 +17,7 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     provider: aws
     all-regions: 'true'
     fail-on-confidence: HIGH
+    fail-on-cost: '100'
     output: json
     output-file: scan-results.json
 ```
@@ -34,6 +35,7 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
   with:
     provider: azure
     fail-on-confidence: HIGH
+    fail-on-cost: '100'
     output: json
     output-file: scan-results.json
 ```
@@ -47,6 +49,7 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     provider: aws
     region: us-east-1
     fail-on-confidence: HIGH
+    fail-on-cost: '100'
     output: json
     output-file: scan-results.json
 ```
@@ -58,6 +61,7 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     provider: azure
     region: westeurope
     fail-on-confidence: HIGH
+    fail-on-cost: '100'
     output: json
     output-file: scan-results.json
 ```
@@ -74,7 +78,7 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
 | `fail-on-findings` | No | `false` | Fail on any finding |
 | `output` | No | `human` | Output format: `human`, `json`, `csv`, or `markdown` |
 | `output-file` | No | — | Path to write output file (required for `json`/`csv`, optional for `markdown`) |
-| `version` | No | latest | CleanCloud version to install (e.g. `1.7.1`) |
+| `version` | No | latest | CleanCloud version to install (e.g. `1.7.2`) |
 
 > **AWS note:** You must provide either `all-regions: 'true'` or a specific `region`. Omitting both will cause the scan to fail. For Azure, `region` is optional — omitting it scans all accessible locations.
 
@@ -102,7 +106,7 @@ This action installs the latest CleanCloud from PyPI by default. To pin a specif
 - uses: cleancloud-io/scan-action@v1
   with:
     provider: aws
-    version: '1.7.1'
+    version: '1.7.2'
 ```
 
 ## As featured in

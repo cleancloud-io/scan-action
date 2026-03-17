@@ -91,6 +91,10 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
 | `2` | Policy violation — findings detected (when enforcement enabled) |
 | `3` | Missing credentials or insufficient permissions |
 
+## How it works
+
+This action installs CleanCloud from PyPI and runs it directly on the runner. For Docker-based CI, use the [Docker image](https://hub.docker.com/r/getcleancloud/cleancloud) directly instead of this action.
+
 ## Authentication
 
 CleanCloud is read-only — it never creates, modifies, or deletes resources. Set up authentication before calling this action:

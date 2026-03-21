@@ -4,7 +4,7 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
 
 ## Usage
 
-### AWS (OIDC)
+### AWS — single account (OIDC)
 
 ```yaml
 - uses: aws-actions/configure-aws-credentials@v4
@@ -22,7 +22,49 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     output-file: scan-results.json
 ```
 
-### Azure (Workload Identity)
+### AWS — all accounts in an Organization
+
+```yaml
+- uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+    aws-region: us-east-1
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: aws
+    org: 'true'
+    all-regions: 'true'
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
+### AWS — specific accounts (inline)
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: aws
+    accounts: '111111111111,222222222222,333333333333'
+    all-regions: 'true'
+    output: json
+    output-file: scan-results.json
+```
+
+### AWS — specific accounts (config file)
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: aws
+    multi-account: .cleancloud/accounts.yaml
+    all-regions: 'true'
+    output: json
+    output-file: scan-results.json
+```
+
+### Azure — single subscription (Workload Identity)
 
 ```yaml
 - uses: azure/login@v2
@@ -40,6 +82,36 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     output-file: scan-results.json
 ```
 
+### Azure — all subscriptions under a Management Group
+
+```yaml
+- uses: azure/login@v2
+  with:
+    client-id: ${{ secrets.AZURE_CLIENT_ID }}
+    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: azure
+    management-group: my-management-group-id
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
+### Azure — specific subscriptions
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: azure
+    subscription: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx, yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy'
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
 ### Scan a specific region
 
 **AWS:**
@@ -49,7 +121,6 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     provider: aws
     region: us-east-1
     fail-on-confidence: HIGH
-    fail-on-cost: '100'
     output: json
     output-file: scan-results.json
 ```
@@ -61,26 +132,52 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     provider: azure
     region: westeurope
     fail-on-confidence: HIGH
-    fail-on-cost: '100'
     output: json
     output-file: scan-results.json
 ```
 
 ## Inputs
 
+### General
+
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `provider` | Yes | — | `aws` or `azure` |
-| `all-regions` | AWS: one of `all-regions` or `region` required | `false` | Scan all active regions (AWS only) |
-| `region` | AWS: one of `all-regions` or `region` required | — | Specific region (AWS) or location filter (Azure, optional) |
+| `region` | No | — | Specific region (AWS) or location filter (Azure, optional) |
 | `fail-on-confidence` | No | — | Fail if findings at or above this level: `LOW`, `MEDIUM`, or `HIGH` |
 | `fail-on-cost` | No | — | Fail if estimated monthly waste exceeds this USD amount |
 | `fail-on-findings` | No | `false` | Fail on any finding |
 | `output` | No | `human` | Output format: `human`, `json`, `csv`, or `markdown` |
 | `output-file` | No | — | Path to write output file (required for `json`/`csv`, optional for `markdown`) |
+| `artifact-name` | No | — | Upload the output file as a GitHub Actions artifact with this name. Leave empty to skip upload. |
+| `config` | No | — | Path to `cleancloud.yaml` config file |
+| `ignore-tag` | No | — | Ignore findings by tag. Comma-separated `key` or `key:value` pairs. Example: `env:dev,temporary` |
 | `version` | No | latest | CleanCloud version to install (e.g. `1.7.2`) |
 
-> **AWS note:** You must provide either `all-regions: 'true'` or a specific `region`. Omitting both will cause the scan to fail. For Azure, `region` is optional — omitting it scans all accessible locations.
+### AWS
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `all-regions` | One of `all-regions` or `region` required | `false` | Scan all active regions |
+| `org` | No | `false` | Auto-discover and scan all accounts in your AWS Organization. Requires `organizations:ListAccounts` on the hub role. |
+| `accounts` | No | — | Comma-separated AWS account IDs to scan. Example: `111111111111,222222222222` |
+| `multi-account` | No | — | Path to accounts config file. Example: `.cleancloud/accounts.yaml` |
+| `role-name` | No | `CleanCloudReadOnlyRole` | IAM role name to assume in each spoke account |
+| `external-id` | No | — | External ID for cross-account role assumption, if required by the spoke trust policy |
+| `concurrency` | No | `3` | Number of accounts to scan in parallel. Keep low to avoid API throttling. |
+| `timeout` | No | `3600` | Total scan timeout in seconds across all accounts |
+| `per-account-regions` | No | `false` | Detect active regions per account instead of once on the hub. Slower but accurate if accounts use different regions. |
+
+> `org`, `accounts`, and `multi-account` are mutually exclusive — use only one.
+
+### Azure
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `subscription` | No | — | Comma-separated subscription IDs to scan. Omit to scan all accessible subscriptions. |
+| `management-group` | No | — | Management Group ID — auto-discovers all subscriptions underneath. |
+
+> `subscription` and `management-group` are mutually exclusive — use only one.
 
 ## Exit Codes
 
@@ -110,7 +207,7 @@ This action installs the latest CleanCloud from PyPI by default. To pin a specif
 - uses: cleancloud-io/scan-action@v1
   with:
     provider: aws
-    version: '1.7.2'
+    version: '1.9.0'
 ```
 
 ## As featured in

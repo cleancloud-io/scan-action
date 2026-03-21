@@ -38,6 +38,58 @@ inputs:
     description: 'Path to write output file (required for json/csv, optional for markdown)'
     required: false
     default: ''
+  org:
+    description: 'Auto-discover and scan all accounts in your AWS Organization (AWS only). Requires organizations:ListAccounts on the hub role.'
+    required: false
+    default: 'false'
+  accounts:
+    description: 'AWS account IDs to scan, comma-separated (AWS only). Example: 111111111111,222222222222'
+    required: false
+    default: ''
+  multi-account:
+    description: 'Path to accounts config file for multi-account scanning (AWS only). Example: .cleancloud/accounts.yaml'
+    required: false
+    default: ''
+  role-name:
+    description: 'IAM role name to assume in each spoke account (AWS multi-account only). Defaults to CleanCloudReadOnlyRole.'
+    required: false
+    default: ''
+  external-id:
+    description: 'External ID for cross-account role assumption, if required by the spoke trust policy (AWS multi-account only).'
+    required: false
+    default: ''
+  concurrency:
+    description: 'Number of AWS accounts to scan in parallel (AWS multi-account only). Keep low to avoid API throttling.'
+    required: false
+    default: ''
+  timeout:
+    description: 'Total scan timeout in seconds across all accounts (AWS multi-account only).'
+    required: false
+    default: ''
+  per-account-regions:
+    description: 'Detect active regions per account instead of once on the hub. Slower but accurate if accounts use different regions (AWS multi-account only).'
+    required: false
+    default: 'false'
+  artifact-name:
+    description: 'Upload the output file as a GitHub Actions artifact with this name. Leave empty to skip upload.'
+    required: false
+    default: ''
+  config:
+    description: 'Path to cleancloud.yaml config file.'
+    required: false
+    default: ''
+  ignore-tag:
+    description: 'Ignore findings by tag. Comma-separated key or key:value pairs. Example: env:dev,temporary'
+    required: false
+    default: ''
+  subscription:
+    description: 'Azure subscription ID(s) to scan, comma-separated. Omit to scan all accessible subscriptions.'
+    required: false
+    default: ''
+  management-group:
+    description: 'Azure Management Group ID — auto-discovers all subscriptions underneath.'
+    required: false
+    default: ''
   version:
     description: 'CleanCloud version to install (e.g. 1.7.2). Defaults to latest.'
     required: false
@@ -73,13 +125,74 @@ runs:
         INPUT_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
         INPUT_OUTPUT: ${{ inputs.output }}
         INPUT_OUTPUT_FILE: ${{ inputs.output-file }}
+        INPUT_ORG: ${{ inputs.org }}
+        INPUT_ACCOUNTS: ${{ inputs.accounts }}
+        INPUT_MULTI_ACCOUNT: ${{ inputs.multi-account }}
+        INPUT_ROLE_NAME: ${{ inputs.role-name }}
+        INPUT_EXTERNAL_ID: ${{ inputs.external-id }}
+        INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_PER_ACCOUNT_REGIONS: ${{ inputs.per-account-regions }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_IGNORE_TAG: ${{ inputs.ignore-tag }}
+        INPUT_SUBSCRIPTION: ${{ inputs.subscription }}
+        INPUT_MANAGEMENT_GROUP: ${{ inputs.management-group }}
       run: |
         set -euo pipefail
 
-        # Validate: all-regions is AWS only
-        if [ "$INPUT_PROVIDER" = "azure" ] && [ "$INPUT_ALL_REGIONS" = "true" ]; then
-          echo "::error::all-regions=true is only valid for AWS"
+        # Helpers
+        is_true()   { [ "${1,,}" = "true" ]; }
+        is_number() { [[ "$1" =~ ^[0-9]+$ ]]; }
+
+        # Validate: provider
+        case "$INPUT_PROVIDER" in
+          aws|azure) ;;
+          *) echo "::error::provider must be 'aws' or 'azure'"; exit 1 ;;
+        esac
+
+        # Validate: AWS-only inputs not used with Azure
+        if [ "$INPUT_PROVIDER" = "azure" ]; then
+          is_true "$INPUT_ALL_REGIONS"         && { echo "::error::all-regions is only valid for AWS"; exit 1; }
+          is_true "$INPUT_ORG"                 && { echo "::error::org is only valid for AWS"; exit 1; }
+          [ -n "$INPUT_ACCOUNTS" ]             && { echo "::error::accounts is only valid for AWS"; exit 1; }
+          [ -n "$INPUT_MULTI_ACCOUNT" ]        && { echo "::error::multi-account is only valid for AWS"; exit 1; }
+          [ -n "$INPUT_ROLE_NAME" ]            && { echo "::error::role-name is only valid for AWS"; exit 1; }
+          [ -n "$INPUT_EXTERNAL_ID" ]          && { echo "::error::external-id is only valid for AWS"; exit 1; }
+          [ -n "$INPUT_CONCURRENCY" ]          && { echo "::error::concurrency is only valid for AWS"; exit 1; }
+          [ -n "$INPUT_TIMEOUT" ]              && { echo "::error::timeout is only valid for AWS"; exit 1; }
+          is_true "$INPUT_PER_ACCOUNT_REGIONS" && { echo "::error::per-account-regions is only valid for AWS"; exit 1; }
+        fi
+
+        # Validate: Azure-only inputs not used with AWS
+        if [ "$INPUT_PROVIDER" = "aws" ]; then
+          [ -n "$INPUT_SUBSCRIPTION" ]     && { echo "::error::subscription is only valid for Azure"; exit 1; }
+          [ -n "$INPUT_MANAGEMENT_GROUP" ] && { echo "::error::management-group is only valid for Azure"; exit 1; }
+        fi
+
+        # Validate: AWS multi-account modes are mutually exclusive
+        AWS_MULTI_COUNT=0
+        is_true "$INPUT_ORG"       && ((AWS_MULTI_COUNT++)) || true
+        [ -n "$INPUT_ACCOUNTS" ]   && ((AWS_MULTI_COUNT++)) || true
+        [ -n "$INPUT_MULTI_ACCOUNT" ] && ((AWS_MULTI_COUNT++)) || true
+        if [ "$AWS_MULTI_COUNT" -gt 1 ]; then
+          echo "::error::Use only one of: org, accounts, or multi-account"
           exit 1
+        fi
+
+        # Validate: Azure subscription and management-group are mutually exclusive
+        if [ -n "$INPUT_SUBSCRIPTION" ] && [ -n "$INPUT_MANAGEMENT_GROUP" ]; then
+          echo "::error::Cannot use subscription and management-group together"
+          exit 1
+        fi
+
+        # Validate: numeric inputs
+        if [ -n "$INPUT_CONCURRENCY" ]; then
+          ! is_number "$INPUT_CONCURRENCY"    && { echo "::error::concurrency must be a positive integer"; exit 1; }
+          [ "$INPUT_CONCURRENCY" -le 0 ]      && { echo "::error::concurrency must be greater than 0"; exit 1; }
+        fi
+        if [ -n "$INPUT_TIMEOUT" ]; then
+          ! is_number "$INPUT_TIMEOUT"        && { echo "::error::timeout must be a positive integer"; exit 1; }
+          [ "$INPUT_TIMEOUT" -le 0 ]          && { echo "::error::timeout must be greater than 0"; exit 1; }
         fi
 
         # Validate: output-file required for json/csv
@@ -94,15 +207,83 @@ runs:
           *) echo "::error::Invalid fail-on-confidence value: '$INPUT_FAIL_ON_CONFIDENCE'. Must be LOW, MEDIUM, or HIGH"; exit 1 ;;
         esac
 
+        # Log scan intent
+        if [ "$INPUT_PROVIDER" = "azure" ]; then
+          echo "Provider: Azure"
+          if [ -n "$INPUT_MANAGEMENT_GROUP" ]; then
+            echo "Mode: Management Group ($INPUT_MANAGEMENT_GROUP)"
+          elif [ -n "$INPUT_SUBSCRIPTION" ]; then
+            echo "Mode: Explicit subscriptions ($INPUT_SUBSCRIPTION)"
+          else
+            echo "Mode: All accessible subscriptions"
+          fi
+        elif [ "$INPUT_PROVIDER" = "aws" ]; then
+          echo "Provider: AWS"
+          if is_true "$INPUT_ORG"; then
+            echo "Mode: AWS Organization (auto-discovery)"
+          elif [ -n "$INPUT_ACCOUNTS" ]; then
+            echo "Mode: Explicit accounts ($INPUT_ACCOUNTS)"
+          elif [ -n "$INPUT_MULTI_ACCOUNT" ]; then
+            echo "Mode: Config file ($INPUT_MULTI_ACCOUNT)"
+          else
+            echo "Mode: Single account"
+          fi
+        fi
+
         ARGS=(scan --provider "$INPUT_PROVIDER")
 
-        [ "$INPUT_ALL_REGIONS" = "true" ]      && ARGS+=(--all-regions)
-        [ -n "$INPUT_REGION" ]                 && ARGS+=(--region "$INPUT_REGION")
-        [ -n "$INPUT_FAIL_ON_CONFIDENCE" ]     && ARGS+=(--fail-on-confidence "$INPUT_FAIL_ON_CONFIDENCE")
-        [ -n "$INPUT_FAIL_ON_COST" ]           && ARGS+=(--fail-on-cost "$INPUT_FAIL_ON_COST")
-        [ "$INPUT_FAIL_ON_FINDINGS" = "true" ] && ARGS+=(--fail-on-findings)
-        [ -n "$INPUT_OUTPUT" ]                 && ARGS+=(--output "$INPUT_OUTPUT")
-        [ -n "$INPUT_OUTPUT_FILE" ]            && ARGS+=(--output-file "$INPUT_OUTPUT_FILE")
+        is_true "$INPUT_ALL_REGIONS"         && ARGS+=(--all-regions)
+        [ -n "$INPUT_REGION" ]               && ARGS+=(--region "$INPUT_REGION")
+        is_true "$INPUT_ORG"                 && ARGS+=(--org)
+        [ -n "$INPUT_ACCOUNTS" ]             && ARGS+=(--accounts "$INPUT_ACCOUNTS")
+        [ -n "$INPUT_MULTI_ACCOUNT" ]        && ARGS+=(--multi-account "$INPUT_MULTI_ACCOUNT")
+        [ -n "$INPUT_ROLE_NAME" ]            && ARGS+=(--role-name "$INPUT_ROLE_NAME")
+        [ -n "$INPUT_EXTERNAL_ID" ]          && ARGS+=(--external-id "$INPUT_EXTERNAL_ID")
+        [ -n "$INPUT_CONCURRENCY" ]          && ARGS+=(--concurrency "$INPUT_CONCURRENCY")
+        [ -n "$INPUT_TIMEOUT" ]              && ARGS+=(--timeout "$INPUT_TIMEOUT")
+        is_true "$INPUT_PER_ACCOUNT_REGIONS" && ARGS+=(--per-account-regions)
+        [ -n "$INPUT_CONFIG" ]               && ARGS+=(--config "$INPUT_CONFIG")
+        if [ -n "$INPUT_IGNORE_TAG" ]; then
+          IFS=',' read -ra TAGS <<< "$INPUT_IGNORE_TAG"
+          for tag in "${TAGS[@]}"; do
+            tag=$(echo "$tag" | xargs)
+            [ -z "$tag" ] && continue
+            ARGS+=(--ignore-tag "$tag")
+          done
+        fi
+        [ -n "$INPUT_FAIL_ON_CONFIDENCE" ]   && ARGS+=(--fail-on-confidence "$INPUT_FAIL_ON_CONFIDENCE")
+        [ -n "$INPUT_FAIL_ON_COST" ]         && ARGS+=(--fail-on-cost "$INPUT_FAIL_ON_COST")
+        is_true "$INPUT_FAIL_ON_FINDINGS"    && ARGS+=(--fail-on-findings)
+        [ -n "$INPUT_OUTPUT" ]               && ARGS+=(--output "$INPUT_OUTPUT")
+        [ -n "$INPUT_OUTPUT_FILE" ]          && ARGS+=(--output-file "$INPUT_OUTPUT_FILE")
+        [ -n "$INPUT_MANAGEMENT_GROUP" ]     && ARGS+=(--management-group "$INPUT_MANAGEMENT_GROUP")
+        if [ -n "$INPUT_SUBSCRIPTION" ]; then
+          IFS=',' read -ra SUBS <<< "$INPUT_SUBSCRIPTION"
+          for sub in "${SUBS[@]}"; do
+            sub=$(echo "$sub" | xargs)
+            [ -z "$sub" ] && continue
+            ARGS+=(--subscription "$sub")
+          done
+        fi
 
-        echo "Running: cleancloud ${ARGS[*]}"
-        cleancloud "${ARGS[@]}"
+        ARGS+=(--no-feedback)
+
+        printf "Running: cleancloud"; printf " %q" "${ARGS[@]}"; echo
+
+        echo "## CleanCloud Scan" >> "$GITHUB_STEP_SUMMARY"
+        echo "**Provider:** $INPUT_PROVIDER" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+
+        if cleancloud "${ARGS[@]}"; then
+          echo "Scan completed successfully." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Scan failed." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+        fi
+
+    - name: Upload CleanCloud report
+      if: ${{ inputs.artifact-name != '' && inputs.output-file != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.output-file }}

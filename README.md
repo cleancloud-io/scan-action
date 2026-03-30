@@ -1,6 +1,6 @@
 # CleanCloud Scan Action
 
-GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — a read-only cloud hygiene scanner for AWS and Azure that finds orphaned resources and enforces hygiene in CI.
+GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — a read-only cloud hygiene scanner for AWS, Azure, and GCP that finds orphaned resources and enforces hygiene in CI.
 
 ## Usage
 
@@ -112,6 +112,53 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     output-file: scan-results.json
 ```
 
+### GCP — all projects (Workload Identity Federation)
+
+```yaml
+- uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+    service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: gcp
+    all-projects: 'true'
+    fail-on-confidence: HIGH
+    fail-on-cost: '100'
+    output: json
+    output-file: scan-results.json
+```
+
+### GCP — single project
+
+```yaml
+- uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+    service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: gcp
+    project: my-gcp-project-id
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
+### GCP — specific projects (comma-separated)
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: gcp
+    project: 'project-id-1, project-id-2, project-id-3'
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
 ### Scan a specific region
 
 **AWS:**
@@ -142,7 +189,7 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `provider` | Yes | — | `aws` or `azure` |
+| `provider` | Yes | — | `aws`, `azure`, or `gcp` |
 | `region` | No | — | Specific region (AWS) or location filter (Azure, optional) |
 | `fail-on-confidence` | No | — | Fail if findings at or above this level: `LOW`, `MEDIUM`, or `HIGH` |
 | `fail-on-cost` | No | — | Fail if estimated monthly waste exceeds this USD amount |
@@ -179,6 +226,15 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
 
 > `subscription` and `management-group` are mutually exclusive — use only one.
 
+### GCP
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `project` | No | — | Comma-separated GCP project IDs to scan. Omit to use the default project from credentials. |
+| `all-projects` | No | `false` | Scan all accessible GCP projects. Requires `roles/browser` on the service account. |
+
+> `project` and `all-projects` are mutually exclusive — use only one.
+
 ## Exit Codes
 
 | Code | Meaning |
@@ -198,6 +254,7 @@ CleanCloud is read-only — it never creates, modifies, or deletes resources. Se
 
 - **AWS:** Use [`aws-actions/configure-aws-credentials`](https://github.com/aws-actions/configure-aws-credentials) with OIDC. See [AWS setup guide](https://github.com/cleancloud-io/cleancloud/blob/main/docs/aws.md).
 - **Azure:** Use [`azure/login`](https://github.com/Azure/login) with Workload Identity Federation. See [Azure setup guide](https://github.com/cleancloud-io/cleancloud/blob/main/docs/azure.md).
+- **GCP:** Use [`google-github-actions/auth`](https://github.com/google-github-actions/auth) with Workload Identity Federation. See [GCP setup guide](https://github.com/cleancloud-io/cleancloud/blob/main/docs/gcp.md).
 
 ## Versioning
 

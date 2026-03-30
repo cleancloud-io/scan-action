@@ -98,3 +98,43 @@ jobs:
           output: json
           output-file: azure-multi-sub-results.json
           artifact-name: azure-multi-subscription-results
+
+  test-gcp:
+    name: Test — GCP (single project)
+    runs-on: ubuntu-latest
+    environment: scan-action-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Run CleanCloud scan (single project, report only)
+        uses: ./
+        with:
+          provider: gcp
+          project: ${{ vars.GCP_PROJECT_ID }}
+          output: json
+          output-file: gcp-results.json
+          artifact-name: gcp-scan-results
+
+  test-gcp-all-projects:
+    name: Test — GCP (all projects)
+    runs-on: ubuntu-latest
+    environment: scan-action-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Run CleanCloud scan (all projects, report only)
+        uses: ./
+        with:
+          provider: gcp
+          all-projects: 'true'
+          output: json
+          output-file: gcp-all-projects-results.json
+          artifact-name: gcp-all-projects-results

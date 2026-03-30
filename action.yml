@@ -1,5 +1,5 @@
 name: 'CleanCloud Scan'
-description: 'Scan your cloud environment for waste and hygiene issues'
+description: 'Scan your cloud environment for waste and hygiene issues across AWS, Azure, and GCP'
 author: 'Suresh Mandalapu'
 
 branding:
@@ -8,7 +8,7 @@ branding:
 
 inputs:
   provider:
-    description: 'Cloud provider to scan: aws or azure'
+    description: 'Cloud provider to scan: aws, azure, or gcp'
     required: true
   region:
     description: 'Specific region or location to scan'
@@ -90,6 +90,14 @@ inputs:
     description: 'Azure Management Group ID — auto-discovers all subscriptions underneath.'
     required: false
     default: ''
+  project:
+    description: 'GCP project ID(s) to scan, comma-separated. Omit to use the default project from credentials.'
+    required: false
+    default: ''
+  all-projects:
+    description: 'Scan all accessible GCP projects (GCP only).'
+    required: false
+    default: 'false'
   version:
     description: 'CleanCloud version to install (e.g. 1.7.2). Defaults to latest.'
     required: false
@@ -137,6 +145,8 @@ runs:
         INPUT_IGNORE_TAG: ${{ inputs.ignore-tag }}
         INPUT_SUBSCRIPTION: ${{ inputs.subscription }}
         INPUT_MANAGEMENT_GROUP: ${{ inputs.management-group }}
+        INPUT_PROJECT: ${{ inputs.project }}
+        INPUT_ALL_PROJECTS: ${{ inputs.all-projects }}
       run: |
         set -euo pipefail
 
@@ -146,12 +156,12 @@ runs:
 
         # Validate: provider
         case "$INPUT_PROVIDER" in
-          aws|azure) ;;
-          *) echo "::error::provider must be 'aws' or 'azure'"; exit 1 ;;
+          aws|azure|gcp) ;;
+          *) echo "::error::provider must be 'aws', 'azure', or 'gcp'"; exit 1 ;;
         esac
 
-        # Validate: AWS-only inputs not used with Azure
-        if [ "$INPUT_PROVIDER" = "azure" ]; then
+        # Validate: AWS-only inputs not used with non-AWS providers
+        if [ "$INPUT_PROVIDER" != "aws" ]; then
           is_true "$INPUT_ALL_REGIONS"         && { echo "::error::all-regions is only valid for AWS"; exit 1; }
           is_true "$INPUT_ORG"                 && { echo "::error::org is only valid for AWS"; exit 1; }
           [ -n "$INPUT_ACCOUNTS" ]             && { echo "::error::accounts is only valid for AWS"; exit 1; }
@@ -163,10 +173,22 @@ runs:
           is_true "$INPUT_PER_ACCOUNT_REGIONS" && { echo "::error::per-account-regions is only valid for AWS"; exit 1; }
         fi
 
-        # Validate: Azure-only inputs not used with AWS
-        if [ "$INPUT_PROVIDER" = "aws" ]; then
+        # Validate: Azure-only inputs not used with non-Azure providers
+        if [ "$INPUT_PROVIDER" != "azure" ]; then
           [ -n "$INPUT_SUBSCRIPTION" ]     && { echo "::error::subscription is only valid for Azure"; exit 1; }
           [ -n "$INPUT_MANAGEMENT_GROUP" ] && { echo "::error::management-group is only valid for Azure"; exit 1; }
+        fi
+
+        # Validate: GCP-only inputs not used with non-GCP providers
+        if [ "$INPUT_PROVIDER" != "gcp" ]; then
+          [ -n "$INPUT_PROJECT" ]        && { echo "::error::project is only valid for GCP"; exit 1; }
+          is_true "$INPUT_ALL_PROJECTS"  && { echo "::error::all-projects is only valid for GCP"; exit 1; }
+        fi
+
+        # Validate: GCP project and all-projects are mutually exclusive
+        if [ "$INPUT_PROVIDER" = "gcp" ] && [ -n "$INPUT_PROJECT" ] && is_true "$INPUT_ALL_PROJECTS"; then
+          echo "::error::Cannot use project and all-projects together"
+          exit 1
         fi
 
         # Validate: AWS multi-account modes are mutually exclusive
@@ -228,6 +250,15 @@ runs:
           else
             echo "Mode: Single account"
           fi
+        elif [ "$INPUT_PROVIDER" = "gcp" ]; then
+          echo "Provider: GCP"
+          if is_true "$INPUT_ALL_PROJECTS"; then
+            echo "Mode: All accessible projects"
+          elif [ -n "$INPUT_PROJECT" ]; then
+            echo "Mode: Explicit projects ($INPUT_PROJECT)"
+          else
+            echo "Mode: Default project from credentials"
+          fi
         fi
 
         ARGS=(scan --provider "$INPUT_PROVIDER")
@@ -263,6 +294,15 @@ runs:
             sub=$(echo "$sub" | xargs)
             [ -z "$sub" ] && continue
             ARGS+=(--subscription "$sub")
+          done
+        fi
+        is_true "$INPUT_ALL_PROJECTS" && ARGS+=(--all-projects)
+        if [ -n "$INPUT_PROJECT" ]; then
+          IFS=',' read -ra PROJECTS <<< "$INPUT_PROJECT"
+          for proj in "${PROJECTS[@]}"; do
+            proj=$(echo "$proj" | xargs)
+            [ -z "$proj" ] && continue
+            ARGS+=(--project "$proj")
           done
         fi
 

@@ -14,6 +14,10 @@ inputs:
     description: 'Specific region or location to scan'
     required: false
     default: ''
+  category:
+    description: 'Rule category to run: hygiene (default), ai (SageMaker, AML, Vertex AI — all clouds), or all (hygiene + AI)'
+    required: false
+    default: ''
   all-regions:
     description: 'Scan all regions with resources (AWS only)'
     required: false
@@ -75,7 +79,15 @@ inputs:
     required: false
     default: ''
   config:
-    description: 'Path to cleancloud.yaml config file.'
+    description: 'Path to cleancloud.yaml config file. If omitted, auto-detected from repo root.'
+    required: false
+    default: ''
+  explain:
+    description: 'Print suppression reason for each filtered finding. Useful for debugging policy config in CI.'
+    required: false
+    default: 'false'
+  skip:
+    description: 'Skip rules by ID. Comma-separated. Example: aws.ec2.ami.old,aws.resource.untagged'
     required: false
     default: ''
   ignore-tag:
@@ -127,6 +139,7 @@ runs:
       env:
         INPUT_PROVIDER: ${{ inputs.provider }}
         INPUT_REGION: ${{ inputs.region }}
+        INPUT_CATEGORY: ${{ inputs.category }}
         INPUT_ALL_REGIONS: ${{ inputs.all-regions }}
         INPUT_FAIL_ON_CONFIDENCE: ${{ inputs.fail-on-confidence }}
         INPUT_FAIL_ON_COST: ${{ inputs.fail-on-cost }}
@@ -142,6 +155,8 @@ runs:
         INPUT_TIMEOUT: ${{ inputs.timeout }}
         INPUT_PER_ACCOUNT_REGIONS: ${{ inputs.per-account-regions }}
         INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_EXPLAIN: ${{ inputs.explain }}
+        INPUT_SKIP: ${{ inputs.skip }}
         INPUT_IGNORE_TAG: ${{ inputs.ignore-tag }}
         INPUT_SUBSCRIPTION: ${{ inputs.subscription }}
         INPUT_MANAGEMENT_GROUP: ${{ inputs.management-group }}
@@ -158,6 +173,12 @@ runs:
         case "$INPUT_PROVIDER" in
           aws|azure|gcp) ;;
           *) echo "::error::provider must be 'aws', 'azure', or 'gcp'"; exit 1 ;;
+        esac
+
+        # Validate: category
+        case "$INPUT_CATEGORY" in
+          ""|hygiene|ai|all) ;;
+          *) echo "::error::Invalid category value: '$INPUT_CATEGORY'. Must be hygiene, ai, or all"; exit 1 ;;
         esac
 
         # Validate: AWS-only inputs not used with non-AWS providers
@@ -263,6 +284,7 @@ runs:
 
         ARGS=(scan --provider "$INPUT_PROVIDER")
 
+        [ -n "$INPUT_CATEGORY" ]             && ARGS+=(--category "$INPUT_CATEGORY")
         is_true "$INPUT_ALL_REGIONS"         && ARGS+=(--all-regions)
         [ -n "$INPUT_REGION" ]               && ARGS+=(--region "$INPUT_REGION")
         is_true "$INPUT_ORG"                 && ARGS+=(--org)
@@ -274,6 +296,15 @@ runs:
         [ -n "$INPUT_TIMEOUT" ]              && ARGS+=(--timeout "$INPUT_TIMEOUT")
         is_true "$INPUT_PER_ACCOUNT_REGIONS" && ARGS+=(--per-account-regions)
         [ -n "$INPUT_CONFIG" ]               && ARGS+=(--config "$INPUT_CONFIG")
+        is_true "$INPUT_EXPLAIN"             && ARGS+=(--explain)
+        if [ -n "$INPUT_SKIP" ]; then
+          IFS=',' read -ra SKIPS <<< "$INPUT_SKIP"
+          for rule in "${SKIPS[@]}"; do
+            rule=$(echo "$rule" | xargs)
+            [ -z "$rule" ] && continue
+            ARGS+=(--skip "$rule")
+          done
+        fi
         if [ -n "$INPUT_IGNORE_TAG" ]; then
           IFS=',' read -ra TAGS <<< "$INPUT_IGNORE_TAG"
           for tag in "${TAGS[@]}"; do

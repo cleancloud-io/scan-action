@@ -1,6 +1,6 @@
 # CleanCloud Scan Action
 
-GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — a read-only cloud hygiene scanner for AWS, Azure, and GCP that finds orphaned resources and enforces hygiene in CI.
+GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — a read-only cloud hygiene scanner for AWS, Azure, and GCP that finds orphaned resources, detects idle AI/ML waste ($500–$23K/month per endpoint), and enforces policy-as-code in CI.
 
 ## Usage
 
@@ -159,6 +159,96 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
     output-file: scan-results.json
 ```
 
+### AI/ML waste detection — AWS (SageMaker)
+
+Detect idle SageMaker endpoints with zero invocations. GPU-backed endpoints flagged HIGH risk ($500–$23K/month).
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: aws
+    all-regions: 'true'
+    category: ai
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
+### AI/ML waste detection — Azure (AML compute clusters)
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: azure
+    category: ai
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
+### AI/ML waste detection — GCP (Vertex AI endpoints)
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: gcp
+    all-projects: 'true'
+    category: ai
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
+### Hygiene + AI/ML together
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: aws
+    org: 'true'
+    all-regions: 'true'
+    category: all
+    fail-on-confidence: HIGH
+    fail-on-cost: '500'
+    output: json
+    output-file: scan-results.json
+```
+
+### With policy-as-code config
+
+Commit a `cleancloud.yaml` to your repo — exceptions, thresholds, and tag filtering are picked up automatically:
+
+```yaml
+- uses: actions/checkout@v4   # required so cleancloud.yaml is available
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: aws
+    all-regions: 'true'
+    # config auto-detected from cleancloud.yaml in repo root
+    # or pass explicitly:
+    # config: configs/prod.yaml
+    output: json
+    output-file: scan-results.json
+```
+
+`cleancloud.yaml` (committed to repo root):
+```yaml
+defaults:
+  confidence: MEDIUM
+  min_cost: 10
+exceptions:
+  - rule_id: aws.ec2.instance.stopped
+    resource_id: i-0abc1234567890def
+    reason: "Bastion host — started on demand"
+    expires_at: "2026-12-31"
+thresholds:
+  fail_on_confidence: HIGH
+  fail_on_cost: 500
+```
+
+See [policy config reference](https://github.com/cleancloud-io/cleancloud/blob/main/docs/configuration.md) for full options.
+
 ### Scan a specific region
 
 **AWS:**
@@ -190,6 +280,7 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `provider` | Yes | — | `aws`, `azure`, or `gcp` |
+| `category` | No | `hygiene` | `hygiene` (default), `ai` (SageMaker / AML / Vertex AI — all clouds), or `all` |
 | `region` | No | — | Specific region (AWS) or location filter (Azure, optional) |
 | `fail-on-confidence` | No | — | Fail if findings at or above this level: `LOW`, `MEDIUM`, or `HIGH` |
 | `fail-on-cost` | No | — | Fail if estimated monthly waste exceeds this USD amount |
@@ -197,7 +288,9 @@ GitHub Action for [CleanCloud](https://github.com/cleancloud-io/cleancloud) — 
 | `output` | No | `human` | Output format: `human`, `json`, `csv`, or `markdown` |
 | `output-file` | No | — | Path to write output file (required for `json`/`csv`, optional for `markdown`) |
 | `artifact-name` | No | — | Upload the output file as a GitHub Actions artifact with this name. Leave empty to skip upload. |
-| `config` | No | — | Path to `cleancloud.yaml` config file |
+| `config` | No | — | Path to `cleancloud.yaml` config file. Auto-detected from repo root if omitted (requires `actions/checkout` first). |
+| `explain` | No | `false` | Print suppression reason for each filtered finding. Useful for debugging policy config. |
+| `skip` | No | — | Comma-separated rule IDs to skip. Example: `aws.ec2.ami.old,aws.resource.untagged` |
 | `ignore-tag` | No | — | Ignore findings by tag. Comma-separated `key` or `key:value` pairs. Example: `env:dev,temporary` |
 | `version` | No | latest | CleanCloud version to install (e.g. `1.7.2`) |
 

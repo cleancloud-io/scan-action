@@ -15,7 +15,7 @@ inputs:
     required: false
     default: ''
   category:
-    description: 'Rule category to run: hygiene (default), ai (SageMaker, AML, Vertex AI — all clouds), or all (hygiene + AI)'
+    description: 'Rule category to run: hygiene (default), ai (SageMaker + EC2 GPU on AWS, AML Compute on Azure, Vertex AI on GCP), or all (hygiene + AI)'
     required: false
     default: ''
   all-regions:
@@ -127,11 +127,13 @@ runs:
       shell: bash
       env:
         CLEANCLOUD_VERSION: ${{ inputs.version }}
+        CLEANCLOUD_PROVIDER: ${{ inputs.provider }}
       run: |
+        EXTRA="${CLEANCLOUD_PROVIDER:-all}"
         if [ -n "$CLEANCLOUD_VERSION" ]; then
-          pip install --upgrade "cleancloud==$CLEANCLOUD_VERSION"
+          pip install --upgrade "cleancloud[${EXTRA}]==$CLEANCLOUD_VERSION"
         else
-          pip install --upgrade cleancloud
+          pip install --upgrade "cleancloud[${EXTRA}]"
         fi
 
     - name: Run CleanCloud scan
@@ -348,8 +350,9 @@ runs:
         if cleancloud "${ARGS[@]}"; then
           echo "Scan completed successfully." >> "$GITHUB_STEP_SUMMARY"
         else
+          EXIT_CODE=$?
           echo "Scan failed." >> "$GITHUB_STEP_SUMMARY"
-          exit 1
+          exit $EXIT_CODE
         fi
 
     - name: Upload CleanCloud report
